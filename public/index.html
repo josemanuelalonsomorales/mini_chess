@@ -3,29 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transferencias bancarias</title>
+    <title>Ajedrez 5x5 - MVC</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>Transferencias bancarias</h1>
-    
-    <h2>Saldos Actuales</h2>
-    <div id="contenedorListaUsuarios">Cargando datos...</div>
 
-    <hr>
-
-    <h2>Realizar Transferencia</h2>
-    <form id="formularioTransferencia">
-        <label for="identificadorUsuarioOrigen">ID Usuario Origen:</label><br>
-        <input type="number" id="identificadorUsuarioOrigen" value="1" required><br><br>
-        
-        <label for="identificadorUsuarioDestino">ID Usuario Destino:</label><br>
-        <input type="number" id="identificadorUsuarioDestino" value="2" required><br><br>
-        
-        <label for="montoATransferir">Monto a Transferir $:</label><br>
-        <input type="number" id="montoATransferir" value="100" step="0.01" required><br><br>
-        
-        <button type="submit">Enviar Transferencia</button>
-    </form>
+    <div id="info-turno">Cargando partida...</div>
+    <button id="btn-reiniciar" onclick="reiniciarPartida()">Reiniciar Partida</button>
+    <div id="tablero"></div>
 
     <script src="app.js"></script>
 </body>

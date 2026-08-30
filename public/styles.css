@@ -1,0 +1,90 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #B0CFD7;
+    color: #373F68;
+}
+
+#info-turno {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    font-weight: bold;
+    color: #373F68;
+}
+
+#btn-reiniciar {
+    margin-bottom: 20px;
+    padding: 10px 20px;
+    font-size: 1rem;
+    font-weight: bold;
+    background-color: #D86310;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+#btn-reiniciar:hover {
+    background-color: #b34e0a;
+}
+
+#tablero {
+    display: grid;
+    grid-template-columns: 40px repeat(5, 70px);
+    grid-template-rows: repeat(5, 70px) 40px;
+    gap: 2px;
+    background-color: #373F68;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
+
+.casilla {
+    width: 70px;
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.2rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.blanca { 
+    background-color: #FFFFFF; 
+    color: #373F68; 
+}
+
+.negra { 
+    background-color: #373F68; 
+    color: #FFFFFF; 
+}
+
+.casilla.seleccionada {
+    background-color: #D86310 !important;
+}
+
+.coordenada {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #000000;
+    background-color: #DCAB77;
+    border-radius: 4px;
+}
+
+.pieza-blanca {
+    color: #FFFFFF;
+    text-shadow: 0 0 4px #000000, 0 0 2px #000000;
+}
+
+.pieza-negra {
+    color: #000000;
+}
