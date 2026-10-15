@@ -1,0 +1,115 @@
+version: '3.8'
+
+networks:
+  mini-chess-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: mini_chess_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: sh0ut1nk
+      POSTGRES_DB: chess_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+    networks:
+      - mini-chess-net
+
+  game-service-1:
+    build:
+      context: ./services/game-service
+      dockerfile: Dockerfile
+    container_name: mini_chess_game_service_1
+    restart: always
+    environment:
+      - INSTANCE_ID=backend-1
+      - DB_HOST=postgres-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=sh0ut1nk
+      - DB_NAME=chess_db
+      - PORT=8080
+    depends_on:
+      - postgres-db
+    networks:
+      - mini-chess-net
+
+  game-service-2:
+    build:
+      context: ./services/game-service
+      dockerfile: Dockerfile
+    container_name: mini_chess_game_service_2
+    restart: always
+    environment:
+      - INSTANCE_ID=backend-2
+      - DB_HOST=postgres-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=sh0ut1nk
+      - DB_NAME=chess_db
+      - PORT=8080
+    depends_on:
+      - postgres-db
+    networks:
+      - mini-chess-net
+
+  game-service-3:
+    build:
+      context: ./services/game-service
+      dockerfile: Dockerfile
+    container_name: mini_chess_game_service_3
+    restart: always
+    environment:
+      - INSTANCE_ID=backend-3
+      - DB_HOST=postgres-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=sh0ut1nk
+      - DB_NAME=chess_db
+      - PORT=8080
+    depends_on:
+      - postgres-db
+    networks:
+      - mini-chess-net
+
+  go-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: mini_chess_go_gateway
+    restart: always
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - ROUTES_FILE=routes.json
+    depends_on:
+      - game-service-1
+      - game-service-2
+      - game-service-3
+    networks:
+      - mini-chess-net
+
+  nginx-gateway:
+    build:
+      context: .
+      dockerfile: ./nginx-gateway/Dockerfile
+    container_name: mini_chess_nginx_gateway
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      - game-service-1
+      - game-service-2
+      - game-service-3
+    networks:
+      - mini-chess-net
