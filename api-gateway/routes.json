@@ -1,10 +1,6 @@
-[
-  {
-    "prefix": "/api/",
-    "targets": [
-      "http://game-service-1:8080",
-      "http://game-service-2:8080",
-      "http://game-service-3:8080"
-    ]
-  }
-]
+{
+  "backends": [
+    "game-service-1:50053",
+    "game-service-2:50053"
+  ]
+}

@@ -1,12 +1,22 @@
 FROM golang:1.22-alpine AS builder
+
 WORKDIR /app
-COPY go.mod go.sum ./
+
+COPY proto ./proto
+COPY services/game-service ./services/game-service
+
+WORKDIR /app/services/game-service
+
 RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o game-service main.go
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o game-service .
 
 FROM alpine:latest
-WORKDIR /app
-COPY --from=builder /app/game-service .
-EXPOSE 8080
+
+WORKDIR /root/
+
+COPY --from=builder /app/services/game-service/game-service .
+
+EXPOSE 50053
+
 CMD ["./game-service"]

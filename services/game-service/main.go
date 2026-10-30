@@ -1,52 +1,36 @@
 package main
 
 import (
+	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
-	"net/http"
+	"net"
 	"os"
-	"strconv"
 	"strings"
 
 	_ "github.com/lib/pq"
+	pb "game-service/proto/pb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var conexionBaseDatos *sql.DB
 var instanceID string
 
-type Juego struct {
-	ID          int     `json:"id"`
-	TurnoActual string  `json:"turno_actual"`
-	Estado      string  `json:"estado"`
-	Piezas      []Pieza `json:"piezas,omitempty"`
-}
-
-type Pieza struct {
-	ID        int    `json:"id"`
-	IDJuego   int    `json:"id_juego"`
-	Jugador   string `json:"jugador"`
-	Tipo      string `json:"tipo"`
-	PosicionX string `json:"pos_x"`
-	PosicionY int    `json:"pos_y"`
-	EstaViva  bool   `json:"esta_viva"`
-}
-
-type SolicitudMovimiento struct {
-	IDPieza  int    `json:"id_pieza"`
-	DestinoX string `json:"destino_x"`
-	DestinoY int    `json:"destino_y"`
+type gameServer struct {
+	pb.UnimplementedGameServiceServer
 }
 
 func main() {
-	instanceID = getEnv("INSTANCE_ID", "backend-local")
-	dbHost := getEnv("DB_HOST", "localhost")
+	instanceID = getEnv("INSTANCE_ID", "game-service-local")
+	dbHost := getEnv("DB_HOST", "db")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
-	dbPassword := getEnv("DB_PASSWORD", "sh0ut1nk")
-	dbName := getEnv("DB_NAME", "chess_db")
+	dbPassword := getEnv("DB_PASSWORD", "postgrespassword")
+	dbName := getEnv("DB_NAME", "minichess")
 
 	cadenaConexion := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
@@ -59,22 +43,22 @@ func main() {
 	defer conexionBaseDatos.Close()
 
 	if err = conexionBaseDatos.Ping(); err != nil {
-		log.Fatalf("[Game Service %s] No se pudo conectar a la BD: %v", instanceID, err)
+		log.Printf("[Game Service %s] Advertencia BD no disponible de inmediato: %v", instanceID, err)
 	}
 
-	http.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Instance-Id", instanceID)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+	puerto := getEnv("PORT", "50053")
+	listener, err := net.Listen("tcp", ":"+puerto)
+	if err != nil {
+		log.Fatalf("[Game Service %s] Error abriendo puerto TCP %s: %v", instanceID, puerto, err)
+	}
 
-	http.HandleFunc("/api/juego", instanceMiddleware(logMiddleware(getEstadoJuego)))
-	http.HandleFunc("/api/mover", instanceMiddleware(logMiddleware(hacerMovimiento)))
-	http.HandleFunc("/api/reiniciar", instanceMiddleware(logMiddleware(reiniciarJuego)))
+	grpcServer := grpc.NewServer()
+	pb.RegisterGameServiceServer(grpcServer, &gameServer{})
 
-	puerto := getEnv("PORT", "8080")
-	log.Printf("[Game Service: %s] Microservicio corriendo en puerto %s", instanceID, puerto)
-	log.Fatal(http.ListenAndServe(":"+puerto, nil))
+	log.Printf("[Game Service %s] Servidor gRPC corriendo en puerto :%s", instanceID, puerto)
+	if err := grpcServer.Serve(listener); err != nil {
+		log.Fatalf("[Game Service %s] Error al iniciar servidor gRPC: %v", instanceID, err)
+	}
 }
 
 func getEnv(key, defaultValue string) string {
@@ -84,135 +68,123 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func obtenerIDJuego(r *http.Request) int {
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		return 1
-	}
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		return 1
-	}
-	return id
-}
+// --- IMPLEMENTACIÓN DE LOS MÉTODOS gRPC ---
 
-func getEstadoJuego(w http.ResponseWriter, r *http.Request) {
-	gameID := obtenerIDJuego(r)
-
-	var juegoActual Juego
-	err := conexionBaseDatos.QueryRow("SELECT id, current_turn, status FROM games WHERE id = $1", gameID).
-		Scan(&juegoActual.ID, &juegoActual.TurnoActual, &juegoActual.Estado)
-	if err != nil {
-		http.Error(w, "Error al consultar juego", http.StatusInternalServerError)
-		return
+func (s *gameServer) GetGameState(ctx context.Context, req *pb.GetGameRequest) (*pb.GameState, error) {
+	gameID := req.GetGameId()
+	if gameID == 0 {
+		gameID = 1
 	}
 
-	filasObtenidas, err := conexionBaseDatos.Query(
-		"SELECT id, game_id, player, type, pos_x, pos_y, is_alive FROM pieces WHERE game_id = $1 AND is_alive = TRUE", gameID)
+	var juegoActual pb.GameState
+	juegoActual.InstanceId = instanceID
+
+	err := conexionBaseDatos.QueryRowContext(ctx, "SELECT id, current_turn, status FROM games WHERE id = $1", gameID).
+		Scan(&juegoActual.Id, &juegoActual.TurnoActual, &juegoActual.Estado)
 	if err != nil {
-		http.Error(w, "Error al consultar piezas", http.StatusInternalServerError)
-		return
+		return nil, status.Errorf(codes.NotFound, "Partida %d no encontrada: %v", gameID, err)
+	}
+
+	filasObtenidas, err := conexionBaseDatos.QueryContext(ctx,
+		"SELECT id, player, type, pos_x, pos_y, is_alive FROM pieces WHERE game_id = $1 AND is_alive = TRUE", gameID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Error al consultar piezas: %v", err)
 	}
 	defer filasObtenidas.Close()
 
 	for filasObtenidas.Next() {
-		var piezaActual Pieza
-		err = filasObtenidas.Scan(&piezaActual.ID, &piezaActual.IDJuego, &piezaActual.Jugador, &piezaActual.Tipo, &piezaActual.PosicionX, &piezaActual.PosicionY, &piezaActual.EstaViva)
-		if err != nil {
+		var p pb.Piece
+		if errScan := filasObtenidas.Scan(&p.Id, &p.Jugador, &p.Tipo, &p.PosX, &p.PosY, &p.EstaViva); errScan != nil {
 			continue
 		}
-		juegoActual.Piezas = append(juegoActual.Piezas, piezaActual)
-	}
-	if err = filasObtenidas.Err(); err != nil {
-		http.Error(w, "Error al recorrer piezas", http.StatusInternalServerError)
-		return
+		juegoActual.Piezas = append(juegoActual.Piezas, &p)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(juegoActual)
+	if errIter := filasObtenidas.Err(); errIter != nil {
+		return nil, status.Errorf(codes.Internal, "Error durante la lectura de piezas: %v", errIter)
+	}
+
+	return &juegoActual, nil
 }
 
-func hacerMovimiento(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-		return
+func (s *gameServer) MakeMove(ctx context.Context, req *pb.MoveRequest) (*pb.GameState, error) {
+	gameID := req.GetGameId()
+	if gameID == 0 {
+		gameID = 1
 	}
 
-	gameID := obtenerIDJuego(r)
+	destinoX := strings.ToUpper(req.GetDestinoX())
+	destinoY := req.GetDestinoY()
 
-	var datosSolicitud SolicitudMovimiento
-	err := json.NewDecoder(r.Body).Decode(&datosSolicitud)
-	if err != nil {
-		http.Error(w, "JSON inválido", http.StatusBadRequest)
-		return
+	// Validación de límites del tablero 5x5
+	if len(destinoX) != 1 || destinoX[0] < 'A' || destinoX[0] > 'E' || destinoY < 1 || destinoY > 5 {
+		return nil, status.Errorf(codes.InvalidArgument, "Movimiento fuera de los límites del tablero 5x5")
 	}
 
-	datosSolicitud.DestinoX = strings.ToUpper(datosSolicitud.DestinoX)
-
-	tx, err := conexionBaseDatos.Begin()
+	tx, err := conexionBaseDatos.BeginTx(ctx, nil)
 	if err != nil {
-		http.Error(w, "Error en transacción", http.StatusInternalServerError)
-		return
+		return nil, status.Errorf(codes.Internal, "Error en transacción BD")
 	}
 
 	var estadoPartida string
 	var turnoActual string
-	err = tx.QueryRow("SELECT current_turn, status FROM games WHERE id = $1", gameID).Scan(&turnoActual, &estadoPartida)
+	err = tx.QueryRowContext(ctx, "SELECT current_turn, status FROM games WHERE id = $1", gameID).Scan(&turnoActual, &estadoPartida)
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Partida no encontrada", http.StatusBadRequest)
-		return
+		return nil, status.Errorf(codes.NotFound, "Partida no encontrada")
 	}
 
 	if estadoPartida != "IN_PROGRESS" {
 		tx.Rollback()
-		http.Error(w, "La partida ya ha finalizado. Reiníciala para volver a jugar.", http.StatusBadRequest)
-		return
+		return nil, status.Errorf(codes.FailedPrecondition, "La partida ya ha finalizado")
 	}
 
-	var piezaActual Pieza
-	err = tx.QueryRow("SELECT id, player, type, pos_x, pos_y FROM pieces WHERE id = $1 AND game_id = $2 AND is_alive = TRUE", datosSolicitud.IDPieza, gameID).
+	type PiezaLocal struct {
+		ID        int32
+		Jugador   string
+		Tipo      string
+		PosicionX string
+		PosicionY int32
+	}
+
+	var piezaActual PiezaLocal
+	err = tx.QueryRowContext(ctx, "SELECT id, player, type, pos_x, pos_y FROM pieces WHERE id = $1 AND game_id = $2 AND is_alive = TRUE", req.GetIdPieza(), gameID).
 		Scan(&piezaActual.ID, &piezaActual.Jugador, &piezaActual.Tipo, &piezaActual.PosicionX, &piezaActual.PosicionY)
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Pieza no encontrada", http.StatusBadRequest)
-		return
+		return nil, status.Errorf(codes.NotFound, "Pieza no encontrada o destruida")
 	}
 
 	if piezaActual.Jugador != turnoActual {
 		tx.Rollback()
-		http.Error(w, "Turno inválido", http.StatusBadRequest)
-		return
+		return nil, status.Errorf(codes.PermissionDenied, "No es el turno de las %s", piezaActual.Jugador)
 	}
 
-	var idPiezaDestino int
+	var idPiezaDestino int32
 	var jugadorPiezaDestino string
 	var tipoPiezaDestino string
 	hayPiezaEnDestino := false
-	err = tx.QueryRow("SELECT id, player, type FROM pieces WHERE game_id = $1 AND pos_x = $2 AND pos_y = $3 AND is_alive = TRUE", gameID, datosSolicitud.DestinoX, datosSolicitud.DestinoY).
+	err = tx.QueryRowContext(ctx, "SELECT id, player, type FROM pieces WHERE game_id = $1 AND pos_x = $2 AND pos_y = $3 AND is_alive = TRUE", gameID, destinoX, destinoY).
 		Scan(&idPiezaDestino, &jugadorPiezaDestino, &tipoPiezaDestino)
 	if err == nil {
 		hayPiezaEnDestino = true
 		if jugadorPiezaDestino == piezaActual.Jugador {
 			tx.Rollback()
-			http.Error(w, "No puedes capturar tu propia pieza", http.StatusBadRequest)
-			return
+			return nil, status.Errorf(codes.InvalidArgument, "No puedes capturar tu propia pieza")
 		}
 	}
 
-	if !esMovimientoValido(piezaActual, datosSolicitud.DestinoX, datosSolicitud.DestinoY, hayPiezaEnDestino, tx, gameID) {
+	if !esMovimientoValido(piezaActual.Tipo, piezaActual.Jugador, piezaActual.PosicionX, int(piezaActual.PosicionY), destinoX, int(destinoY), hayPiezaEnDestino, tx, int(gameID), ctx) {
 		tx.Rollback()
-		http.Error(w, "Movimiento no permitido", http.StatusBadRequest)
-		return
+		return nil, status.Errorf(codes.InvalidArgument, "Movimiento de %s no permitido", piezaActual.Tipo)
 	}
 
 	reyCapturado := false
 	if hayPiezaEnDestino {
-		_, err = tx.Exec("UPDATE pieces SET is_alive = FALSE WHERE id = $1", idPiezaDestino)
+		_, err = tx.ExecContext(ctx, "UPDATE pieces SET is_alive = FALSE WHERE id = $1", idPiezaDestino)
 		if err != nil {
 			tx.Rollback()
-			http.Error(w, "Error al eliminar pieza", http.StatusInternalServerError)
-			return
+			return nil, status.Errorf(codes.Internal, "Error al eliminar pieza destruida")
 		}
 		if tipoPiezaDestino == "KING" {
 			reyCapturado = true
@@ -221,32 +193,16 @@ func hacerMovimiento(w http.ResponseWriter, r *http.Request) {
 
 	tipoFinalPieza := piezaActual.Tipo
 	if piezaActual.Tipo == "PAWN" {
-		if (piezaActual.Jugador == "WHITE" && datosSolicitud.DestinoY == 5) ||
-			(piezaActual.Jugador == "BLACK" && datosSolicitud.DestinoY == 1) {
+		if (piezaActual.Jugador == "WHITE" && destinoY == 5) || (piezaActual.Jugador == "BLACK" && destinoY == 1) {
 			tipoFinalPieza = "QUEEN"
 		}
 	}
 
-	_, err = tx.Exec("UPDATE pieces SET pos_x = $1, pos_y = $2, type = $3 WHERE id = $4",
-		datosSolicitud.DestinoX, datosSolicitud.DestinoY, tipoFinalPieza, datosSolicitud.IDPieza)
+	_, err = tx.ExecContext(ctx, "UPDATE pieces SET pos_x = $1, pos_y = $2, type = $3 WHERE id = $4",
+		destinoX, destinoY, tipoFinalPieza, req.GetIdPieza())
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Error al mover pieza", http.StatusInternalServerError)
-		return
-	}
-
-	promotedTo := sql.NullString{}
-	if tipoFinalPieza == "QUEEN" && piezaActual.Tipo == "PAWN" {
-		promotedTo.String = "QUEEN"
-		promotedTo.Valid = true
-	}
-
-	_, err = tx.Exec("INSERT INTO movements (game_id, piece_id, from_x, from_y, to_x, to_y, promoted_to) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		gameID, datosSolicitud.IDPieza, piezaActual.PosicionX, piezaActual.PosicionY, datosSolicitud.DestinoX, datosSolicitud.DestinoY, promotedTo)
-	if err != nil {
-		tx.Rollback()
-		http.Error(w, "Error al registrar movimiento", http.StatusInternalServerError)
-		return
+		return nil, status.Errorf(codes.Internal, "Error al mover pieza")
 	}
 
 	if reyCapturado {
@@ -254,99 +210,69 @@ func hacerMovimiento(w http.ResponseWriter, r *http.Request) {
 		if piezaActual.Jugador == "BLACK" {
 			nuevoEstado = "BLACK_WON"
 		}
-		_, err = tx.Exec("UPDATE games SET status = $1 WHERE id = $2", nuevoEstado, gameID)
+		_, err = tx.ExecContext(ctx, "UPDATE games SET status = $1 WHERE id = $2", nuevoEstado, gameID)
 		if err != nil {
 			tx.Rollback()
-			http.Error(w, "Error al actualizar estado de victoria", http.StatusInternalServerError)
-			return
+			return nil, status.Errorf(codes.Internal, "Error actualizando estado de victoria")
 		}
 	} else {
 		siguienteTurno := "WHITE"
 		if turnoActual == "WHITE" {
 			siguienteTurno = "BLACK"
 		}
-		_, err = tx.Exec("UPDATE games SET current_turn = $1 WHERE id = $2", siguienteTurno, gameID)
+		_, err = tx.ExecContext(ctx, "UPDATE games SET current_turn = $1 WHERE id = $2", siguienteTurno, gameID)
 		if err != nil {
 			tx.Rollback()
-			http.Error(w, "Error al actualizar turno", http.StatusInternalServerError)
-			return
+			return nil, status.Errorf(codes.Internal, "Error al actualizar turno")
 		}
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		http.Error(w, "Error al confirmar transacción", http.StatusInternalServerError)
-		return
+	if err = tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "Error al confirmar transacción")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"mensaje": "Movimiento exitoso"}`))
+	return s.GetGameState(ctx, &pb.GetGameRequest{GameId: gameID})
 }
 
-func reiniciarJuego(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
-		return
+func (s *gameServer) ResetGame(ctx context.Context, req *pb.GetGameRequest) (*pb.GameState, error) {
+	gameID := req.GetGameId()
+	if gameID == 0 {
+		gameID = 1
 	}
 
-	gameID := obtenerIDJuego(r)
-
-	tx, err := conexionBaseDatos.Begin()
+	tx, err := conexionBaseDatos.BeginTx(ctx, nil)
 	if err != nil {
-		http.Error(w, "Error al iniciar transacción", http.StatusInternalServerError)
-		return
+		return nil, status.Errorf(codes.Internal, "Error al iniciar transacción")
 	}
 
-	_, err = tx.Exec("DELETE FROM movements WHERE game_id = $1", gameID)
-	if err != nil {
-		tx.Rollback()
-		http.Error(w, "Error limpiando movimientos", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = tx.Exec("DELETE FROM pieces WHERE game_id = $1", gameID)
-	if err != nil {
-		tx.Rollback()
-		http.Error(w, "Error limpiando piezas", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = tx.Exec("UPDATE games SET current_turn = 'WHITE', status = 'IN_PROGRESS' WHERE id = $1", gameID)
-	if err != nil {
-		tx.Rollback()
-		http.Error(w, "Error reiniciando estado del juego", http.StatusInternalServerError)
-		return
-	}
+	_, _ = tx.ExecContext(ctx, "DELETE FROM pieces WHERE game_id = $1", gameID)
+	_, _ = tx.ExecContext(ctx, "UPDATE games SET current_turn = 'WHITE', status = 'IN_PROGRESS' WHERE id = $1", gameID)
 
 	insertQuery := `
-	INSERT INTO pieces (game_id, player, type, pos_x, pos_y) VALUES
-	($1, 'WHITE', 'ROOK',   'A', 1), ($1, 'WHITE', 'BISHOP', 'B', 1), ($1, 'WHITE', 'KING',   'C', 1), ($1, 'WHITE', 'BISHOP', 'D', 1), ($1, 'WHITE', 'ROOK',   'E', 1),
-	($1, 'WHITE', 'PAWN',   'A', 2), ($1, 'WHITE', 'PAWN',   'B', 2), ($1, 'WHITE', 'PAWN',   'C', 2), ($1, 'WHITE', 'PAWN',   'D', 2), ($1, 'WHITE', 'PAWN',   'E', 2),
-	($1, 'BLACK', 'PAWN',   'A', 4), ($1, 'BLACK', 'PAWN',   'B', 4), ($1, 'BLACK', 'PAWN',   'C', 4), ($1, 'BLACK', 'PAWN',   'D', 4), ($1, 'BLACK', 'PAWN',   'E', 4),
-	($1, 'BLACK', 'ROOK',   'A', 5), ($1, 'BLACK', 'BISHOP', 'B', 5), ($1, 'BLACK', 'KING',   'C', 5), ($1, 'BLACK', 'BISHOP', 'D', 5), ($1, 'BLACK', 'ROOK',   'E', 5)`
+	INSERT INTO pieces (game_id, player, type, pos_x, pos_y, is_alive) VALUES
+	($1, 'WHITE', 'ROOK',   'A', 1, true), ($1, 'WHITE', 'BISHOP', 'B', 1, true), ($1, 'WHITE', 'KING',   'C', 1, true), ($1, 'WHITE', 'BISHOP', 'D', 1, true), ($1, 'WHITE', 'ROOK',   'E', 1, true),
+	($1, 'WHITE', 'PAWN',   'A', 2, true), ($1, 'WHITE', 'PAWN',   'B', 2, true), ($1, 'WHITE', 'PAWN',   'C', 2, true), ($1, 'WHITE', 'PAWN',   'D', 2, true), ($1, 'WHITE', 'PAWN',   'E', 2, true),
+	($1, 'BLACK', 'PAWN',   'A', 4, true), ($1, 'BLACK', 'PAWN',   'B', 4, true), ($1, 'BLACK', 'PAWN',   'C', 4, true), ($1, 'BLACK', 'PAWN',   'D', 4, true), ($1, 'BLACK', 'PAWN',   'E', 4, true),
+	($1, 'BLACK', 'ROOK',   'A', 5, true), ($1, 'BLACK', 'BISHOP', 'B', 5, true), ($1, 'BLACK', 'KING',   'C', 5, true), ($1, 'BLACK', 'BISHOP', 'D', 5, true), ($1, 'BLACK', 'ROOK',   'E', 5, true)`
 
-	_, err = tx.Exec(insertQuery, gameID)
+	_, err = tx.ExecContext(ctx, insertQuery, gameID)
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Error insertando piezas", http.StatusInternalServerError)
-		return
+		return nil, status.Errorf(codes.Internal, "Error reinsertando piezas")
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		http.Error(w, "Error al confirmar transacción", http.StatusInternalServerError)
-		return
+	if err = tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "Error al confirmar reinicio")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"mensaje": "Juego reiniciado exitosamente"}`))
+	return s.GetGameState(ctx, req)
 }
 
-func esMovimientoValido(pieza Pieza, destinoX string, destinoY int, hayCaptura bool, tx *sql.Tx, gameID int) bool {
-	origenX := int(pieza.PosicionX[0] - 'A')
-	origenY := pieza.PosicionY
+// --- REGLAS DE MOVIMIENTO EN EL TABLERO 5x5 ---
+
+func esMovimientoValido(tipo, jugador, posX string, posY int, destinoX string, destinoY int, hayCaptura bool, tx *sql.Tx, gameID int, ctx context.Context) bool {
+	origenX := int(posX[0] - 'A')
+	origenY := posY
 	desX := int(destinoX[0] - 'A')
 	desY := destinoY
 
@@ -360,9 +286,9 @@ func esMovimientoValido(pieza Pieza, destinoX string, destinoY int, hayCaptura b
 		return false
 	}
 
-	switch pieza.Tipo {
+	switch tipo {
 	case "PAWN":
-		if pieza.Jugador == "WHITE" {
+		if jugador == "WHITE" {
 			if dx == 0 && dy == 1 && !hayCaptura {
 				return true
 			}
@@ -383,17 +309,17 @@ func esMovimientoValido(pieza Pieza, destinoX string, destinoY int, hayCaptura b
 		if dx != 0 && dy != 0 {
 			return false
 		}
-		return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID)
+		return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID, ctx)
 
 	case "BISHOP":
 		if absDx != absDy {
 			return false
 		}
-		return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID)
+		return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID, ctx)
 
 	case "QUEEN":
 		if (dx == 0 || dy == 0) || (absDx == absDy) {
-			return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID)
+			return !hayObstaculosEnCamino(origenX, origenY, desX, desY, tx, gameID, ctx)
 		}
 		return false
 
@@ -404,7 +330,7 @@ func esMovimientoValido(pieza Pieza, destinoX string, destinoY int, hayCaptura b
 	return false
 }
 
-func hayObstaculosEnCamino(origenX, origenY, desX, desY int, tx *sql.Tx, gameID int) bool {
+func hayObstaculosEnCamino(origenX, origenY, desX, desY int, tx *sql.Tx, gameID int, ctx context.Context) bool {
 	pasoX := 0
 	if desX > origenX {
 		pasoX = 1
@@ -425,7 +351,7 @@ func hayObstaculosEnCamino(origenX, origenY, desX, desY int, tx *sql.Tx, gameID 
 	for currX != desX || currY != desY {
 		colChar := string(rune('A' + currX))
 		var existe int
-		err := tx.QueryRow("SELECT id FROM pieces WHERE game_id = $1 AND pos_x = $2 AND pos_y = $3 AND is_alive = TRUE", gameID, colChar, currY).Scan(&existe)
+		err := tx.QueryRowContext(ctx, "SELECT id FROM pieces WHERE game_id = $1 AND pos_x = $2 AND pos_y = $3 AND is_alive = TRUE", gameID, colChar, currY).Scan(&existe)
 		if err == nil {
 			return true
 		}
@@ -434,18 +360,4 @@ func hayObstaculosEnCamino(origenX, origenY, desX, desY int, tx *sql.Tx, gameID 
 	}
 
 	return false
-}
-
-func instanceMiddleware(siguiente http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Instance-Id", instanceID)
-		siguiente(w, r)
-	}
-}
-
-func logMiddleware(siguiente http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[Game Service %s] %s - %s", instanceID, r.Method, r.URL.Path)
-		siguiente(w, r)
-	}
 }
