@@ -1,0 +1,6 @@
+{
+  "backends": [
+    "game-service-1:50053",
+    "game-service-2:50053"
+  ]
+}

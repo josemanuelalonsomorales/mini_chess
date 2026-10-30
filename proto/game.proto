@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "mini-chess/proto/pb;pb";
+
+// MatchRequest solicita encontrar una partida para un jugador.
+message MatchRequest {
+  int32 player_id = 1;
+}
+
+// MatchResponse contiene los datos de la partida encontrada.
+message MatchResponse {
+  string game_id = 1;
+  int32 white_player_id = 2;
+  int32 black_player_id = 3;
+  string status = 4;
+}
+
+// Piece representa una pieza dentro del tablero.
+message Piece {
+  int32 id = 1;
+  string jugador = 2;
+  string tipo = 3;
+  string pos_x = 4;
+  int32 pos_y = 5;
+  bool esta_viva = 6;
+}
+
+// GameState contiene el estado completo de una partida.
+message GameState {
+  int32 id = 1;
+  string turno_actual = 2;
+  string estado = 3;
+  repeated Piece piezas = 4;
+  string instance_id = 5;
+}
+
+// GetGameRequest identifica una partida.
+message GetGameRequest {
+  int32 game_id = 1;
+}
+
+// MoveRequest contiene los datos de un movimiento.
+message MoveRequest {
+  int32 game_id = 1;
+  int32 id_pieza = 2;
+  string destino_x = 3;
+  int32 destino_y = 4;
+}
+
+// Empty representa una respuesta sin contenido.
+message Empty {}
+
+// MatchmakingService administra la búsqueda de partidas.
+service MatchmakingService {
+  rpc FindMatch(MatchRequest) returns (MatchResponse);
+}
+
+// GameService administra las partidas y sus movimientos.
+service GameService {
+  rpc GetGameState(GetGameRequest) returns (GameState);
+  rpc MakeMove(MoveRequest) returns (GameState);
+  rpc ResetGame(GetGameRequest) returns (GameState);
+}

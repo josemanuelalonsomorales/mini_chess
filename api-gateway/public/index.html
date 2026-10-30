@@ -1,0 +1,150 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Mini Chess</title>
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <h1 class="game-title">Mini Chess 5x5</h1>
+
+  <section id="authSection" class="auth-section">
+    <div class="auth-card">
+      <h2 id="authTitle">Iniciar sesión</h2>
+
+      <form id="loginForm">
+        <label for="loginIdentifier">Usuario o correo electrónico</label>
+        <input
+          type="text"
+          id="loginIdentifier"
+          autocomplete="username"
+          required
+        >
+
+        <label for="loginPassword">Contraseña</label>
+        <input
+          type="password"
+          id="loginPassword"
+          autocomplete="current-password"
+          required
+        >
+
+        <button type="submit" class="btn-action">Iniciar sesión</button>
+      </form>
+
+      <form id="registerForm" hidden>
+        <label for="registerUsername">Nombre de usuario</label>
+        <input
+          type="text"
+          id="registerUsername"
+          minlength="3"
+          maxlength="50"
+          autocomplete="username"
+          required
+        >
+
+        <label for="registerEmail">Correo electrónico</label>
+        <input
+          type="email"
+          id="registerEmail"
+          autocomplete="email"
+          required
+        >
+
+        <label for="registerPassword">Contraseña</label>
+        <input
+          type="password"
+          id="registerPassword"
+          minlength="8"
+          autocomplete="new-password"
+          required
+        >
+
+        <button type="submit" class="btn-action">Crear cuenta</button>
+      </form>
+
+      <p id="authMessage" role="status" aria-live="polite"></p>
+
+      <button type="button" id="toggleAuthMode" class="auth-toggle">
+        ¿No tienes cuenta? Regístrate
+      </button>
+    </div>
+  </section>
+
+  <section id="sessionSection" class="session-section" hidden>
+    <span>Sesión iniciada como:</span>
+    <strong id="sessionUsername"></strong>
+    <button type="button" id="logoutButton" class="btn-action">
+      Cerrar sesión
+    </button>
+  </section>
+
+  <div class="box-container">
+    <section class="player-info">
+      <span class="username" id="blackPlayerName">
+        JUGADOR_NEGRAS
+      </span>
+
+      <span style="color: var(--text-muted); font-size: 0.9rem;">
+        (Negras)
+      </span>
+    </section>
+  </div>
+
+  <div class="board-5x5" id="chessBoard"></div>
+
+  <div class="box-container">
+    <section class="player-info">
+      <span class="username" id="whitePlayerName">
+        JUGADOR_BLANCAS
+      </span>
+
+      <span style="color: var(--text-muted); font-size: 0.9rem;">
+        (Blancas)
+      </span>
+    </section>
+  </div>
+
+  <div
+    class="banner-alert"
+    id="gameAlert"
+    role="status"
+    aria-live="polite"
+  >
+    Turno de Blancas
+  </div>
+
+  <footer style="
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    flex-direction: column;
+    align-items: center;
+  ">
+    <button
+      type="button"
+      class="btn-action"
+      onclick="reiniciarPartida()"
+    >
+      Reiniciar Partida
+    </button>
+
+    <small
+      id="instanceTracker"
+      role="status"
+      aria-live="polite"
+      style="color: gray; font-size: 0.75rem; margin-top: 5px;"
+    >
+      Instancia Activa: Evaluando...
+    </small>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

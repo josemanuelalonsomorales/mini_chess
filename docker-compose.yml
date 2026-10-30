@@ -1,71 +1,163 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: mini_chess_db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: minichess
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
-      - ./db/02_init_data.sql:/docker-entrypoint-initdb.d/02_init_data.sql
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/02_init_data.sql:/docker-entrypoint-initdb.d/02_init_data.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  kafka:
+    image: apache/kafka:4.1.0
+    container_name: mini_chess_kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
 
   game-service-1:
     build:
       context: .
       dockerfile: ./services/game-service/Dockerfile
     container_name: game_service_1
+    restart: unless-stopped
     environment:
-      - PORT=50053
-      - INSTANCE_ID=game-service-node-01
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgrespassword
-      - DB_NAME=minichess
+      PORT: ${GAME_SERVICE_PORT}
+      INSTANCE_ID: ${GAME_SERVICE_1_INSTANCE_ID}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      KAFKA_BROKERS: kafka:9092
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
   game-service-2:
     build:
       context: .
       dockerfile: ./services/game-service/Dockerfile
     container_name: game_service_2
+    restart: unless-stopped
     environment:
-      - PORT=50053
-      - INSTANCE_ID=game-service-node-02
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgrespassword
-      - DB_NAME=minichess
+      PORT: ${GAME_SERVICE_PORT}
+      INSTANCE_ID: ${GAME_SERVICE_2_INSTANCE_ID}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      KAFKA_BROKERS: kafka:9092
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  users-service:
+    build:
+      context: .
+      dockerfile: ./services/users-service/Dockerfile
+    container_name: users_service
+    restart: unless-stopped
+    environment:
+      PORT: "50054"
+      JWT_SECRET: ${JWT_SECRET}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  events-consumer:
+    build:
+      context: .
+      dockerfile: ./services/events-consumer/Dockerfile
+    container_name: events_consumer
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   api-gateway:
     build:
       context: .
       dockerfile: ./api-gateway/Dockerfile
     container_name: api_gateway
+    restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "${API_GATEWAY_PORT}:8001"
     environment:
-      - PORT=8001
-      - GAME_BACKENDS=game-service-1:50053,game-service-2:50053
+      PORT: "8001"
+      GAME_ID: ${GAME_ID}
+      GAME_BACKENDS: game-service-1:50053,game-service-2:50053
+      JWT_SECRET: ${JWT_SECRET}
+      USERS_SERVICE_ADDRESS: users-service:50054
     depends_on:
-      - game-service-1
-      - game-service-2
+      game-service-1:
+        condition: service_started
+      game-service-2:
+        condition: service_started
+      users-service:
+        condition: service_started
 
   nginx-gateway:
-      build:
-        context: .
-        dockerfile: ./nginx-gateway/Dockerfile
-      container_name: nginx_gateway
-      ports:
-        - "8000:8000"
-      depends_on:
-        - api-gateway
+    build:
+      context: .
+      dockerfile: ./nginx-gateway/Dockerfile
+    container_name: nginx_gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+volumes:
+  postgres_data:
+    external: true
+    name: 26ef7324963e71fa892ba4f3c9c96299ccb6c6526a95063dbd6b1a7805c281e3

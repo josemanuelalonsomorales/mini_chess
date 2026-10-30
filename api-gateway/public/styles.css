@@ -1,0 +1,348 @@
+
+/* Fuentes */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=Karla:ital,wght@0,300..800;1,300..800&display=swap');
+
+/* Variables */
+:root {
+  --bg-main: #1e1e1e;
+  --bg-card: #2a2a2a;
+  --text-main: #ffffff;
+  --text-muted: #aaaaaa;
+
+  --tile-light: #F0D9B5;
+  --tile-dark: #B58863;
+  --accent-color: #B58863;
+
+  --tile-highlight: rgba(209, 139, 71, 0.5);
+  --tile-selected: #D18B47;
+
+  --font-main: 'Karla', sans-serif;
+  --font-username: 'Bebas Neue', sans-serif;
+  --font-title: 'Instrument Serif', serif;
+}
+
+/* Base */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+/* Tipografía */
+h1, h2, .game-title {
+  font-family: var(--font-title);
+  color: var(--accent-color);
+  letter-spacing: 1px;
+}
+
+.username {
+  font-family: var(--font-username);
+  font-size: 1.4rem;
+  letter-spacing: 1.5px;
+  color: var(--text-main);
+}
+
+.banner-alert, .status-announcement {
+  font-family: var(--font-main);
+  font-size: 2.5rem;
+  color: var(--accent-color);
+  text-align: center;
+}
+
+/* Tablero y Contenedor */
+.chess-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  padding: 20px;
+  background-color: var(--bg-card);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--accent-color);
+}
+
+.player-info {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.board-5x5 {
+  display: grid;
+  grid-template-columns: repeat(5, 70px);
+  grid-template-rows: repeat(5, 70px);
+  border: 4px solid var(--accent-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Casillas */
+.tile {
+  width: 70px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tile.light {
+  background-color: var(--tile-light);
+}
+
+.tile.dark {
+  background-color: var(--tile-dark);
+}
+
+.tile.selected {
+  background-color: var(--tile-selected) !important;
+}
+
+.tile.highlight::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  background-color: var(--tile-highlight);
+  border-radius: 50%;
+  position: absolute;
+}
+
+/* Piezas */
+.piece {
+  width: 80%;
+  height: 80%;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: transform 0.15s ease-in-out;
+}
+
+.piece:hover {
+  transform: scale(1.08);
+}
+
+.piece.white-pawn {
+  background-image: url('/assets/w_pawn.svg');
+}
+
+.piece.white-rook {
+  background-image: url('/assets/w_rook.svg');
+}
+
+.piece.white-bishop {
+  background-image: url('/assets/w_bishop.svg');
+}
+
+.piece.white-king {
+  background-image: url('/assets/w_king.svg');
+}
+
+.piece.white-queen {
+  background-image: url('/assets/w_queen.svg');
+}
+
+.piece.black-pawn {
+  background-image: url('/assets/b_pawn.svg');
+}
+
+.piece.black-rook {
+  background-image: url('/assets/b_rook.svg');
+}
+
+.piece.black-bishop {
+  background-image: url('/assets/b_bishop.svg');
+}
+
+.piece.black-king {
+  background-image: url('/assets/b_king.svg');
+}
+
+.piece.black-queen {
+  background-image: url('/assets/b_queen.svg');
+}
+
+/* Controles */
+.btn-action {
+  font-family: var(--font-main);
+  font-weight: 600;
+  background-color: var(--accent-color);
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-action:hover {
+  opacity: 0.9;
+}
+
+.box-container {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* Adaptación para pantallas pequeñas */
+@media (max-width: 380px) {
+  .board-5x5 {
+    --tile-size: min(70px, calc((100vw - 32px) / 5));
+
+    grid-template-columns: repeat(5, var(--tile-size));
+    grid-template-rows: repeat(5, var(--tile-size));
+  }
+
+  .tile {
+    width: var(--tile-size);
+    height: var(--tile-size);
+  }
+
+  .banner-alert,
+  .status-announcement {
+    font-size: clamp(1.5rem, 8vw, 2.5rem);
+  }
+}
+
+/* =========================================
+   AUTENTICACIÓN Y SESIÓN DE USUARIO
+   ========================================= */
+
+.auth-section,
+.session-section {
+  width: 100%;
+  max-width: 420px;
+  margin: 20px auto;
+  box-sizing: border-box;
+}
+
+.auth-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(181, 136, 99, 0.45);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.auth-card h2 {
+  color: var(--text-main);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.8rem;
+  letter-spacing: 1px;
+  text-align: center;
+  margin: 0 0 20px;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-card label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: left;
+  margin-top: 5px;
+}
+
+.auth-card input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 12px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: var(--bg-main);
+  color: var(--text-main);
+  font-family: 'Karla', sans-serif;
+  font-size: 1rem;
+  outline: none;
+}
+
+.auth-card input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(181, 136, 99, 0.2);
+}
+
+.auth-card .btn-action {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.auth-toggle {
+  display: block;
+  margin: 18px auto 0;
+  padding: 5px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: 'Karla', sans-serif;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.auth-toggle:hover {
+  color: var(--text-main);
+  text-decoration: underline;
+}
+
+#authMessage {
+  min-height: 20px;
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.session-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid rgba(181, 136, 99, 0.45);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.session-section strong {
+  color: var(--accent);
+}
+
+.session-section .btn-action {
+  margin: 0;
+  padding: 8px 14px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 380px) {
+  .auth-card {
+    padding: 18px;
+  }
+
+  .session-section {
+    flex-direction: column;
+  }
+}

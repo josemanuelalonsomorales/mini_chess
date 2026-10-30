@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "mini-chess/proto/pb;pb";
+
+// User representa la información pública de un usuario.
+message User {
+  int32 id = 1;
+  string username = 2;
+  int32 rating = 3;
+}
+
+// GetUserRequest identifica al usuario que se desea consultar.
+message GetUserRequest {
+  int32 user_id = 1;
+}
+
+// RegisterUserRequest contiene los datos necesarios para crear una cuenta.
+// La contraseña se recibe para generar su hash en Users Service.
+message RegisterUserRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+}
+
+// RegisterUserResponse devuelve el perfil público creado.
+message RegisterUserResponse {
+  User user = 1;
+}
+
+// LoginUserRequest permite iniciar sesión mediante username o email.
+message LoginUserRequest {
+  string identifier = 1;
+  string password = 2;
+}
+
+// LoginUserResponse devuelve el perfil y el token de autenticación.
+message LoginUserResponse {
+  User user = 1;
+  string access_token = 2;
+  string token_type = 3;
+  int64 expires_in_seconds = 4;
+}
+
+// UserService administra el registro, la autenticación y las consultas de usuarios.
+service UserService {
+  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
+  rpc LoginUser(LoginUserRequest) returns (LoginUserResponse);
+  rpc GetUser(GetUserRequest) returns (User);
+}
